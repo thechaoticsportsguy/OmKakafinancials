@@ -6,7 +6,7 @@ const decimalText = z.string().regex(/^\d{1,12}(?:\.\d{1,24})?$/);
 const positive = decimalText.refine((value) => /[1-9]/.test(value));
 export const actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("buy"), symbol: symbolSchema, shares: positive, price: positive, amount: positive.optional() }),
-  z.object({ kind: z.literal("sell"), symbol: symbolSchema, shares: positive, price: positive }),
+  z.object({ kind: z.literal("sell"), symbol: symbolSchema, shares: positive, price: positive, amount: positive.optional() }),
   z.object({ kind: z.literal("deposit"), amount: positive }),
   z.object({ kind: z.literal("withdrawal"), amount: positive }),
   z.object({ kind: z.literal("quantity"), symbol: symbolSchema, shares: decimalText }),
@@ -14,6 +14,7 @@ export const actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("remove"), symbol: symbolSchema }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
+export type TradeAction = Extract<Action, { kind: "buy" | "sell" }>;
 
 export const eventSchema = z.object({
   id: z.string().min(1).max(100),

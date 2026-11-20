@@ -169,8 +169,10 @@ td .icon-button { height: 30px; width: 30px; }
 .preview-title, .preview-row { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .preview-title strong { color: var(--accent); }
 .command-preview p { margin: 5px 0; }
-.preview-row { color: #dce8f1; }
-.preview-row span:first-child { color: #aebed2; }
+.preview-details { display: grid; gap: 3px; margin: 6px 0; }
+.preview-row { color: #dce8f1; gap: 2px 10px; }
+.preview-row dt { color: #aebed2; }
+.preview-row dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .command-help { color: var(--muted); padding: 10px 16px 13px; font-size: 12px; }
 .command-help summary { display: flex; align-items: center; gap: 6px; cursor: pointer; width: fit-content; }
 .command-help ul { padding: 6px 0 0 19px; list-style: disc; }

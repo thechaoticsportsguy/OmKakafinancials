@@ -1,9 +1,20 @@
 import Decimal from "decimal.js";
-import { type Action, type LedgerEvent, type PortfolioDocument, documentSchema } from "./schema";
+import { type Action, type LedgerEvent, type PortfolioDocument, type TradeAction, documentSchema } from "./schema";
 
-const Money = Decimal.clone({ precision: 44, rounding: Decimal.ROUND_HALF_EVEN });
+const Money = Decimal.clone({ precision: 80, rounding: Decimal.ROUND_HALF_EVEN });
 export const d = (value: Decimal.Value = 0) => new Money(value);
 export const stored = (value: Decimal) => value.toFixed();
+export const TRADE_SHARE_DECIMALS = 24;
+
+export function tradeValue(action: TradeAction) {
+  const computed = d(action.shares).times(action.price);
+  if (action.amount === undefined) return computed;
+  const amount = d(action.amount);
+  // Dollar-sized orders retain exact proceeds or cost after fractional shares are rounded.
+  const tolerance = d(action.price).times("1e-" + TRADE_SHARE_DECIMALS);
+  if (computed.minus(amount).abs().gt(tolerance)) throw new Error("Trade amount does not match shares and price.");
+  return amount;
+}
 
 export interface Position {
   shares: Decimal;
@@ -45,11 +56,7 @@ export function applyEvent(state: LedgerState, action: Action) {
   const current = state.positions.get(symbol);
   if (action.kind === "buy") {
     const shares = d(action.shares);
-    const computed = shares.times(action.price);
-    const cost = action.amount ? d(action.amount) : computed;
-    if (action.amount && computed.minus(cost).abs().gt(d(action.price).times("0.000000000000000000000001"))) {
-      throw new Error("Buy amount does not match shares and price.");
-    }
+    const cost = tradeValue(action);
     state.cash = state.cash.minus(cost);
     state.positions.set(symbol, {
       shares: (current?.shares ?? d()).plus(shares),
@@ -76,9 +83,11 @@ export function applyEvent(state: LedgerState, action: Action) {
     return;
   }
   const shares = d(action.shares);
-  if (shares.gt(current.shares)) throw new Error("Sale exceeds the shares owned.");
+  const proceeds = tradeValue(action);
+  if (shares.gt(current.shares) || (action.amount !== undefined && proceeds.gt(current.shares.times(action.price)))) {
+    throw new Error("Sale exceeds the shares owned.");
+  }
   const remaining = current.shares.minus(shares);
-  const proceeds = shares.times(action.price);
   const soldBasis = current.basis?.times(shares).div(current.shares) ?? null;
   state.cash = state.cash.plus(proceeds);
   if (soldBasis === null) state.unknownRealized = true;
@@ -126,7 +135,10 @@ export function appendEvent(document: PortfolioDocument, event: LedgerEvent): Po
   return { ...document, events: [...document.events, { ...event, at }] };
 }
 
-export function formatShares(value: Decimal) {
-  if (value.gt(0) && value.lt("0.00000001")) return "<0.00000001";
-  return value.toDecimalPlaces(8).toFixed().replace(/\B(?=(\d{3})+(?!\d))(?![^.]*\.)/g, ",");
+export function formatShares(value: Decimal, decimalPlaces = 8) {
+  const minimum = d(10).pow(-decimalPlaces);
+  if (value.gt(0) && value.lt(minimum)) return "<" + minimum.toFixed();
+  const [whole, fraction] = value.toDecimalPlaces(decimalPlaces).toFixed().split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return fraction === undefined ? grouped : grouped + "." + fraction;
 }

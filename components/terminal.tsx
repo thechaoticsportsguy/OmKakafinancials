@@ -5,13 +5,14 @@ import {
   RefreshCw, Search, Settings2, Table2, Terminal as TerminalIcon, TrendingUp, Wallet, X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { answerQuestion, eventTitle, parseCommand, previewAction } from "@/lib/commands";
+import { answerQuestion, confirmCommand, eventTitle, parseCommand, prepareCommand, type PreparedCommand } from "@/lib/commands";
 import { clock, dash, money, percent, quoteTime, tone } from "@/lib/format";
-import { appendEvent, replay } from "@/lib/ledger";
+import { replay } from "@/lib/ledger";
 import { captureSnapshot, investmentReturn, portfolioMetrics, quoteSymbols } from "@/lib/metrics";
 import { marketClock, sessionNames } from "@/lib/market/calendar";
 import { quoteFreshness } from "@/lib/market/quote";
-import { actionSchema, samplePortfolio, type Action, type PortfolioDocument } from "@/lib/schema";
+import { actionSchema, samplePortfolio, type PortfolioDocument } from "@/lib/schema";
+import { resolveTradePrice, type TradeClarification } from "@/lib/transaction-parser";
 import { Assistant } from "./assistant";
 import { Dialog, PositionDetail, Settings } from "./dialogs";
 import { Performance } from "./performance";
@@ -19,7 +20,6 @@ import { Activity, Allocation, Holdings } from "./portfolio-panels";
 import { useMarket, usePortfolio } from "./use-terminal";
 
 type Modal = { kind: "settings" } | { kind: "history" } | { kind: "position"; symbol: string } | { kind: "replace"; data?: PortfolioDocument };
-type Pending = { action: Action; ledger: string; id: string };
 
 function MetricCard({ label, icon, value, hint, color }: {
   label: string; icon: ReactNode; value: string; hint: ReactNode; color?: string;
@@ -46,7 +46,8 @@ export function Terminal() {
   const [input, setInput] = useState("");
   const [modal, setModal] = useState<Modal | null>(null);
   const [notice, setNotice] = useState("");
-  const [pending, setPending] = useState<Pending | null>(null);
+  const [pending, setPending] = useState<PreparedCommand | null>(null);
+  const [clarification, setClarification] = useState<TradeClarification | null>(null);
   const [commandMessage, setCommandMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +81,7 @@ export function Terminal() {
   }, []);
 
   const state = useMemo(() => replay(data.events), [data.events]);
+  const ledgerChanged = useMemo(() => pending !== null && pending.ledger !== JSON.stringify(data.events), [data.events, pending]);
   const clockInfo = now ? marketClock(now) : null;
   const date = clockInfo?.date ?? "";
   const symbols = useMemo(() => quoteSymbols(state, data.events, date).join(","), [state, data.events, date]);
@@ -109,6 +111,7 @@ export function Terminal() {
     setModal(null);
     setCommandMessage(null);
     setPending(null);
+    setClarification(null);
     setInput(command);
     window.location.hash = "assistant";
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -117,13 +120,24 @@ export function Terminal() {
     event.preventDefault();
     if (!ready || busy) return;
     setPending(null);
-    const result = parseCommand(input);
-    if ("error" in result) setCommandMessage({ text: result.error, error: true });
-    else if ("question" in result) setCommandMessage({ text: answerQuestion(result.question, metrics) });
+    const parsed = parseCommand(input);
+    const result = "error" in parsed && clarification ? resolveTradePrice(clarification, input) ?? parsed : parsed;
+    if ("error" in result) {
+      setCommandMessage({ text: result.error, error: true });
+      return;
+    }
+    if ("clarification" in result) {
+      setClarification(result.clarification);
+      setCommandMessage(null);
+      setInput("");
+      inputRef.current?.focus();
+      return;
+    }
+    setClarification(null);
+    if ("question" in result) setCommandMessage({ text: answerQuestion(result.question, metrics) });
     else {
       try {
-        previewAction(result.action, data.events);
-        setPending({ action: result.action, ledger: JSON.stringify(data.events), id: crypto.randomUUID() });
+        setPending(prepareCommand(result.action, data.events, crypto.randomUUID()));
         setCommandMessage(null);
       } catch (error) {
         setCommandMessage({ text: error instanceof Error ? error.message : "The transaction is invalid.", error: true });
@@ -135,16 +149,15 @@ export function Terminal() {
     if (!pending || transactionRunning.current) return;
     transactionRunning.current = true;
     setBusy(true);
-    const { action, id, ledger } = pending;
+    const { action } = pending;
     try {
       await save((latest) => {
-        if (JSON.stringify(latest.events) !== ledger) throw new Error("The portfolio changed. Run the command again to review its effects.");
         const quote = "symbol" in action ? market.quotes[action.symbol] : undefined;
         const proposedMark = quote && quoteFreshness(quote, now) !== "Stale quote" ? quote.price : undefined;
         let mark: string | undefined;
         if ((action.kind === "quantity" || action.kind === "remove") && proposedMark
           && actionSchema.safeParse({ kind: "basis", symbol: action.symbol, price: proposedMark }).success) mark = proposedMark;
-        return appendEvent(latest, { action, at: Date.now(), id, mark });
+        return confirmCommand(latest, pending, Date.now(), mark);
       });
       setPending(null);
       setInput("");
@@ -165,6 +178,7 @@ export function Terminal() {
     try {
       await save(() => next ?? samplePortfolio(), next ?? samplePortfolio());
       setPending(null);
+      setClarification(null);
       setCommandMessage(null);
       setFilter("");
       setNotice(next ? "Portfolio backup restored." : "Sample portfolio restored.");
@@ -267,8 +281,9 @@ export function Terminal() {
         <Holdings metrics={metrics} filter={filter} clear={() => setFilter("")} issues={market.issues} edit={(symbol) => open({ kind: "position", symbol })} />
         <div className="lower-grid">
           <Assistant input={input} setInput={(value) => { setInput(value); setPending(null); setCommandMessage(null); }}
-            submit={run} message={commandMessage} pending={pending?.action ?? null} events={data.events}
-            clearPending={() => setPending(null)} confirm={() => void confirmEntry()} busy={busy || !ready} inputRef={inputRef} />
+            submit={run} message={commandMessage} pending={pending} ledgerChanged={ledgerChanged} clarification={clarification}
+            cancel={() => { setPending(null); setClarification(null); setCommandMessage(null); inputRef.current?.focus(); }}
+            confirm={() => void confirmEntry()} busy={busy || !ready} inputRef={inputRef} />
           <Activity events={data.events} expand={() => open({ kind: "history" })} />
         </div>
         <footer><span><LineChart size={15} /> OM Terminal</span><span>Quotes by <a href="https://finnhub.io/" target="_blank" rel="noreferrer">Finnhub</a> · Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView</a></span></footer>

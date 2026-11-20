@@ -1,5 +1,5 @@
 import type Decimal from "decimal.js";
-import { applyEvent, d, replay, stored, type LedgerState } from "./ledger";
+import { applyEvent, d, replay, stored, tradeValue, type LedgerState } from "./ledger";
 import { eastern, easternTime, lastRegularDate, marketClock, REGULAR_OPEN, offsetDate, tradingDay } from "./market/calendar";
 import { quoteFreshness } from "./market/quote";
 import type { Quote } from "./market/types";
@@ -54,10 +54,10 @@ function dayGains(events: LedgerEvent[], quotes: Quotes, now: number) {
       if (at > quote.at) break;
       if (action.kind === "buy") {
         shares = shares.plus(action.shares);
-        tradeCash = tradeCash.minus(action.amount ?? d(action.shares).times(action.price));
+        tradeCash = tradeCash.minus(tradeValue(action));
       } else if (action.kind === "sell") {
         shares = shares.minus(action.shares);
-        tradeCash = tradeCash.plus(d(action.shares).times(action.price));
+        tradeCash = tradeCash.plus(tradeValue(action));
       }
     }
     const carry = openingShares.times(quote.previousClose ?? 0);

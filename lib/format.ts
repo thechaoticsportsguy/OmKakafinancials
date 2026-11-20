@@ -20,7 +20,8 @@ export function money(value: Decimal | null, signed = false) {
   return sign + "$" + rounded.abs().toFixed(2).replace(/\B(?=(\d{3})+\.)/g, ",");
 }
 export function quotePrice(value: Decimal) {
-  return "$" + value.toFixed(Math.max(2, value.decimalPlaces())).replace(/\B(?=(\d{3})+\.)/g, ",");
+  const sign = value.lt(0) ? "-" : "";
+  return sign + "$" + value.abs().toFixed(Math.max(2, value.decimalPlaces())).replace(/\B(?=(\d{3})+\.)/g, ",");
 }
 export function percent(value: Decimal | null, signed = false) {
   if (value === null) return dash;

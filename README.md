@@ -28,20 +28,22 @@ For a production build on your own machine, run `npm run build` and then `npm st
 
 ## Ledger and calculations
 
-Enter a command, review the share and cash changes, then choose **Confirm entry** to save it. Example commands include:
+Enter a command and review the transaction before choosing **Confirm entry**. **Cancel** discards the preview. Buy previews show the execution price, total cost, resulting shares, cost basis, average cost, and cash. Sale previews show proceeds, remaining shares, and realized P/L when basis is known.
 
-- `Add 2 shares of NVDA at $185`
-- `Buy $500 worth of SPY at $735`
-- `Sell 1 share of SPY at $740`
+- `add 20 60 cents bought for spmo` and `add 20 shares of spmo at 60 cents` each preview 20 shares at $0.60 for a total of $12.00.
+- `bought 5 spy at 735`, `add 2.5 shares qqqm at 210`, and `bought 10 spmo at 60.25` use the entered per-share prices.
+- `sold 3 schd for 29 each` previews $87.00 in proceeds.
+- `remove $10 worth of spmo` asks for the sale price per share. Reply with a price such as `at $125` to see the preview, or enter the complete command `sell $10 worth of SPMO at $125`.
+- `invested $100 in vht at 170` calculates fractional shares while keeping the cost at $100.00.
+- `deposit 500 dollars cash` and `Withdraw $50 cash` preview cash changes.
 - `Change my SCHD position to 30 shares`
 - `Set my VHT average cost to $165`
 - `Remove JIVE from my portfolio`
-- `Add $1,000 cash` or `Withdraw $50 cash`
 - `Show how much I made today`
 - `What's my biggest holding?`
 - `How much of my portfolio is invested in QQQM?`
 
-The assistant uses a deterministic parser. It records entries in a local ledger and cannot send orders to a brokerage.
+The local parser accepts common phrasing and selected spelling mistakes. Enter numbers as digits and specify one transaction at a time. An ambiguous or missing per-share price prompts for clarification. Ticker validation checks symbol format, with market-data coverage determined separately by Finnhub. Quotes value current holdings, and the price supplied in the command is the one recorded in the ledger. All entries are local.
 
 - The ledger uses decimal arithmetic and moving-average acquisition cost. A sale realizes proceeds minus the proportional cost basis. Position quantity edits preserve a known average cost, and a removal makes an in-kind adjustment without sale proceeds. Setting an average cost establishes the basis for the currently held shares. A disposal that was recorded with unknown basis leaves aggregate realized P/L unknown.
 - Account value includes cash and all marked holdings. Invested capital is the open cost basis of all holdings. Unknown aggregates remain unavailable. Contributions and withdrawals are tracked separately from trades. Recording a purchase without sufficient tracked cash can create a visible cash deficit until you record the funding. Withdrawals beyond tracked cash and sales beyond owned shares are rejected.
